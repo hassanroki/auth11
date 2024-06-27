@@ -1,0 +1,209 @@
+Laravel #11: Multi User Authentication
+======================================
+1. Create project
+Command: composer create-project laravel/laravel auth11 + inter
+
+
+2. Breeze Package
+a) Command: composer require laravel/breeze --dev + inter
+
+b) Breeze Install:
+Command: php artisan breeze:install + inter
+Then, some question answer after install successfully!
+Then, Command: npm run dev + inter
+Then, npm install + inter
+
+c) Create auth11 Database and connect .env file
+.env:
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=auth11
+DB_USERNAME=root
+DB_PASSWORD=
+
+
+
+3) Edit Migration file:
+Databse>migration>0001_01_01_000000_create_users_table.php:
+        Schema::create('users', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('username')->nullable();
+            $table->string('email')->unique();
+            $table->timestamp('email_verified_at')->nullable();
+            $table->string('password');
+            $table->string('phone')->nullable();
+            $table->enum('role', ['admin', 'user'])->default('user');
+            $table->enum('status', ['active', 'inactive'])->default('active');
+            $table->rememberToken();
+            $table->timestamps();
+        });
+
+4) Model Fillable
+Edit app>model> User.php:
+    // $guarded means all column are fillable
+    protected $guarded = [];
+
+Then, Command: php artisan migrate + inter
+
+
+
+5) Demo Data Create using Seeder
+a) Command: php artisan make:seeder UserTableSeeder + inter
+Edit Database>seeders>UserTableSeeder.php:
+  public function run(): void
+    {
+        // Insert Data using Seeder
+        DB::table('users')->insert(
+            // Admin
+            [
+            'name'      => 'Admin',
+            'email'     => 'admin@gmail.com',
+            'password'  => Hash::make('admin'),
+            'role'      => 'admin',
+            'status'    => 'active',
+        ],
+        // User
+            [
+            'name'      => 'User',
+            'email'     => 'user@gmail.com',
+            'password'  => Hash::make('user'),
+            'role'      => 'user',
+            'status'    => 'active',
+        ],
+    );
+    }
+
+6) DatabaseSeeder Call UserTableSeeder
+a) Edit DatabseSeeder.php:
+        public function run(): void
+    {
+// Insert Data using Seeder
+DB::table('users')->insert([
+    // Admin
+    [
+        'name'      => 'Admin',
+        'username'  => 'admin',
+        'email'     => 'admin@gmail.com',
+        'password'  => Hash::make('admin'),
+        'role'      => 'admin',
+        'status'    => 'active',
+    ],
+    // User
+    [
+        'name'      => 'User',
+        'username'  => 'user',
+        'email'     => 'user@gmail.com',
+        'password'  => Hash::make('user'),
+        'role'      => 'user',
+        'status'    => 'active',
+    ],
+]);
+    
+    }
+
+Then, Command: php artisan migrate:fresh --seed + inter
+
+
+7) এখন logout করলে index page এ নিয়ে যাচ্ছে, আমরা চাচ্ছি logout করলে যেনো url/login page এ নিয়ে যায়। সেটি করার জন্য edit করি।
+Edit app>http>Controllers>Auth>AuthenticatedSessionController.php:
+    public function destroy(Request $request): RedirectResponse
+    {
+        Auth::guard('web')->logout();
+
+        $request->session()->invalidate();
+
+        $request->session()->regenerateToken();
+
+        return redirect('/login');
+    } 
+
+
+8) User/Admin দিয়ে login করলে dashboard এ নিয়ে যাচ্ছে, আমরা চাই লগিন করলে যেনো আলাদা আলাদা route এ নিয়ে যায় ।
+
+a) Create AdminController
+Command: php artisan make:controller AdminController + inter
+Edit app>http>controllers>AdminController.php:
+    //AdminDashboard
+    public function adminDashboard(){
+        return view('admin.adminDashboard');
+    }
+
+b) Create Route for AdminController
+Edit Route>web.php:
+// Admin Controller
+Route::get('/admin/dashboard', [AdminController::class, 'adminDashboard'])->name('admin.dashboard');
+
+c) Create view adminDashboard
+Resources>views>admin>adminDashboard.blade.php:
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Admin Dashboard</title>
+</head>
+<body>
+    <h1>Admin Main Dashboard</h1>
+</body>
+</html>
+
+
+d) Create Role Middware For Authentication
+Command: php artisan make:middleware Role + inter
+Edit app>Http>Middleware>Role.php:
+    public function handle(Request $request, Closure $next, $role): Response
+    {
+        if($request->user()->role !== $role){
+            return redirect('dashboard');
+        }
+        
+        return $next($request);
+    }
+
+e) Role Middleware Connect app.php
+Edit> bootstrap>cache>app.php
+    ->withMiddleware(function (Middleware $middleware) {
+        // Role Middleware Connect
+        $middleware->alias(['role' => App\Http\Middleware\Role::class]);
+    })
+
+f) Admindashboard টি auth middleware group এর মাঝে নিবো authentication এর জন্য।
+Edit Route>web.php:
+// Role=>Admin
+Route::middleware(['auth', 'role:admin'])->group(function(){
+// Admin Controller
+Route::get('/admin/dashboard', [AdminController::class, 'adminDashboard'])->name('admin.dashboard');
+});
+
+
+g) If admin login going to admin/dashboard and other login going to dashboard
+
+Edit app>Http>Controllers>AuthenticatedController.php:
+    public function store(LoginRequest $request): RedirectResponse
+    {
+        $request->authenticate();
+
+        $request->session()->regenerate();
+
+        $user = $request->user(); // Get the authenticated user
+
+        // Check the user's role and redirect accordingly
+        if ($user->hasRole('admin')) {
+            return redirect()->intended(route('admin.dashboard', absolute: false));
+        } else {
+            return redirect()->intended(route('dashboard', absolute: false));
+        }
+    }
+
+
+Edit app>Models>user.php:
+    public function hasRole(string $role): bool
+    {
+        return $this->role === $role; // Adjust according to how roles are stored in your user model
+    }
+
+
+
